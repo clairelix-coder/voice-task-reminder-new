@@ -1,0 +1,14 @@
+/* Deterministic Taiwanese conversational time parser, using the device's local timezone. */
+(function(root){
+'use strict';
+function chineseNumber(s){const d={'零':0,'〇':0,'一':1,'二':2,'兩':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};if(!/[十百千]/.test(s))return [...s].map(c=>d[c]).join('');let total=0,n=0;for(const c of s){if(c in d)n=d[c];else{total+=(n||1)*({'十':10,'百':100,'千':1000}[c]);n=0;}}return String(total+n);}
+function normalize(s){return s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-65248)).replace(/[\s\p{P}\p{S}]/gu,'').replace(/[零〇一二兩两三四五六七八九十百千]+/g,chineseNumber).replace(/個半小時|个半小时/g,'半小時').replace(/個小時|个小时|鐘頭|钟头|小时/g,'小時').replace(/點鐘|点钟|点|時(?!後|后)/g,'點').replace(/小點/g,'小時').replace(/分(?!鐘)/g,'分鐘').replace(/后/g,'後');}
+function parseTask(raw,now=new Date()){
+let s=normalize(raw),time=null,consumed='';const relative=s.match(/(\d+半|\d+|半)小時後|(\d+)分鐘後/);
+if(relative){let mins=relative[2]?Number(relative[2]):relative[1]==='半'?30:parseFloat(relative[1])*60+(relative[1].includes('半')?30:0);if(mins>0&&Number.isFinite(mins)){time=new Date(now.getTime()+mins*60000);consumed=relative[0];}}
+if(!consumed){const vague=s.match(/等1下|等一下|待會|待会|晚1點|晚一點/);if(vague){time=new Date(now.getTime()+(vague[0].startsWith('晚')?60:10)*60000);consumed=vague[0];}}
+if(!consumed){const re=/(下週|下周|下禮拜|這週|这周|這周|這禮拜|这礼拜)([1-6日天])|(今天|明天|明早|明晚|明天下午|後天)/;let dateMatch=s.match(re);let period=s.match(/凌晨|早上|上午|中午|下午|晚上|傍晚|早晨/);let clock=s.match(/(\d{1,2})點(?:(\d{1,2})分鐘|半)?/);if(dateMatch||clock){const date=new Date(now);date.setSeconds(0,0);let defaultHour=8;if(dateMatch){if(dateMatch[1]){const target=/日|天/.test(dateMatch[2])?7:Number(dateMatch[2]);const current=now.getDay()||7;const delta=target-current+(dateMatch[1].startsWith('下')?7:0);date.setDate(date.getDate()+delta);}else{const term=dateMatch[3];date.setDate(date.getDate()+(term.startsWith('明')?1:term==='後天'?2:0));if(term==='明晚')defaultHour=19;}}let hour=clock?Number(clock[1]):defaultHour;let minute=clock?(clock[0].endsWith('半')?30:Number(clock[2]||0)):0;let p=period?period[0]:dateMatch?.[3]==='明晚'?'晚上':dateMatch?.[3]==='明早'?'早上':'';if(/下午|晚上|傍晚/.test(p)&&hour<12)hour+=12;if(/凌晨|早上|上午|早晨/.test(p)&&hour===12)hour=0;if(p==='中午'&&hour<11)hour+=12;if(hour<=23&&minute<=59){date.setHours(hour,minute,0,0);time=date;}consumed=[dateMatch?.[0],period?.[0],clock?.[0]].filter(Boolean);}}
+let name=s;if(Array.isArray(consumed))consumed.forEach(c=>{name=name.replace(c,'');});else if(consumed)name=name.replace(consumed,'');name=name.replace(/睡前/g,'').replace(/提醒我/g,'');if(!name)name='未命名任務';return {name,reminderAt:time&&Number.isFinite(time.getTime())?time.toISOString():null,original:raw.trim()};
+}
+root.TaskParser={normalize,parseTask};if(typeof module!=='undefined')module.exports=root.TaskParser;
+})(typeof window!=='undefined'?window:globalThis);
